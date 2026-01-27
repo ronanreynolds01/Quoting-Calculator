@@ -1,0 +1,1595 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Versatech Job Costing Calculator</title>
+
+    <!-- React 18 (UMD) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+    <!-- Babel (so this single HTML can run JSX directly in Chrome) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      html, body { margin: 0; padding: 0; }
+      button { font-family: inherit; }
+      input, select { font-family: inherit; }
+      * { box-sizing: border-box; }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      /***************
+       * localStorage wrapper (matches your window.storage calls)
+       ***************/
+      window.storage = {
+        async set(key, value) {
+          localStorage.setItem(key, value);
+          return true;
+        },
+        async get(key) {
+          const v = localStorage.getItem(key);
+          return { value: v };
+        },
+        async delete(key) {
+          localStorage.removeItem(key);
+          return true;
+        },
+        async list(prefix = "") {
+          const keys = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(prefix)) keys.push(k);
+          }
+          return { keys };
+        }
+      };
+
+      /***************
+       * Simple inline SVG icon components (replacement for lucide-react)
+       ***************/
+      const Icon = ({ children, size = 16, style = {} }) => (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={style}
+        >
+          {children}
+        </svg>
+      );
+
+      const SettingsIcon = ({ size = 16, style = {} }) => (
+        <Icon size={size} style={style}>
+          <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+          <path d="M19.4 15a7.9 7.9 0 0 0 .1-2l2-1.2-2-3.4-2.3.7a7.8 7.8 0 0 0-1.7-1l-.3-2.4H11l-.3 2.4a7.8 7.8 0 0 0-1.7 1l-2.3-.7-2 3.4 2 1.2a7.9 7.9 0 0 0 0 2l-2 1.2 2 3.4 2.3-.7c.5.4 1.1.8 1.7 1l.3 2.4h4l.3-2.4c.6-.2 1.2-.6 1.7-1l2.3.7 2-3.4-2-1.2z" />
+        </Icon>
+      );
+
+      const PlusIcon = ({ size = 16, style = {} }) => (
+        <Icon size={size} style={style}>
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </Icon>
+      );
+
+      const TrashIcon = ({ size = 16, style = {} }) => (
+        <Icon size={size} style={style}>
+          <path d="M3 6h18" />
+          <path d="M8 6V4h8v2" />
+          <path d="M19 6l-1 14H6L5 6" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+        </Icon>
+      );
+
+      const CalculatorIcon = ({ size = 14, style = {} }) => (
+        <Icon size={size} style={style}>
+          <rect x="6" y="2" width="12" height="20" rx="2" />
+          <path d="M8 6h8" />
+          <path d="M8 10h2" />
+          <path d="M12 10h2" />
+          <path d="M16 10h0" />
+          <path d="M8 14h2" />
+          <path d="M12 14h2" />
+          <path d="M8 18h8" />
+        </Icon>
+      );
+
+      const HelpIcon = ({ size = 14, style = {}, ...props }) => (
+        <Icon size={size} style={style} {...props}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
+          <path d="M12 17h.01" />
+        </Icon>
+      );
+
+      /***************
+       * Styles (same as your component)
+       ***************/
+      const inputStyle = {
+        width: '100%',
+        padding: '9px 10px',
+        borderRadius: 10,
+        border: '1px solid rgba(255,255,255,0.08)',
+        background: '#0b1220',
+        color: '#eaf0ff'
+      };
+
+      const cardStyle = {
+        background: 'linear-gradient(180deg, #111c35, #0b1223)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        padding: '14px 16px',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.45)'
+      };
+
+      const cardHeaderStyle = {
+        margin: '0 0 12px',
+        fontSize: 13,
+        letterSpacing: '0.08em',
+        color: '#c7d6ff'
+      };
+
+      const tdStyle = {
+        padding: '8px 0',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        textAlign: 'left'
+      };
+
+      const calcBtnStyle = {
+        borderRadius: 8,
+        padding: '6px 8px',
+        border: '1px solid rgba(255,255,255,0.08)',
+        background: '#121c35',
+        cursor: 'pointer',
+        color: '#9fb0d9',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      };
+
+      const Tooltip = ({ text }) => {
+        const [show, setShow] = useState(false);
+        return (
+          <div 
+            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help' }}
+            onMouseEnter={() => setShow(true)}
+            onMouseLeave={() => setShow(false)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShow(!show);
+            }}
+          >
+            <HelpIcon
+              size={14}
+              style={{ color: '#9fb0d9', pointerEvents: 'none' }}
+            />
+            {show && (
+              <div style={{
+                position: 'absolute',
+                left: 20,
+                top: -8,
+                background: '#1a2744',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontSize: 11,
+                color: '#eaf0ff',
+                width: 220,
+                zIndex: 1000,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                lineHeight: 1.4
+              }}>
+                {text}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      function JobCostingCalculator() {
+        const [machines, setMachines] = useState([
+          { id: 1, name: 'Haas VF-2', rate: 85 },
+          { id: 2, name: 'DMG Mori NLX', rate: 95 }
+        ]);
+        const [overheadRate, setOverheadRate] = useState(45);
+        const [toolingBurden, setToolingBurden] = useState(0);
+        const [laborRates, setLaborRates] = useState({
+          setup: 65,
+          mannedRun: 65,
+          unmannedRun: 35,
+          programming: 75,
+          inspection: 55,
+          rework: 65
+        });
+        const [laborBurdenPercent, setLaborBurdenPercent] = useState(0);
+
+        // Load machines from localStorage on mount
+        useEffect(() => {
+          const loadMachines = async () => {
+            try {
+              const result = await window.storage.get('machines');
+              if (result && result.value) {
+                setMachines(JSON.parse(result.value));
+              }
+            } catch (err) {
+              console.log('No saved machines found, using defaults');
+            }
+          };
+          loadMachines();
+        }, []);
+
+        // Save machines to localStorage whenever they change
+        useEffect(() => {
+          const saveMachines = async () => {
+            try {
+              await window.storage.set('machines', JSON.stringify(machines));
+            } catch (err) {
+              console.error('Failed to save machines:', err);
+            }
+          };
+          saveMachines();
+        }, [machines]);
+
+        // Load settings from localStorage on mount
+        useEffect(() => {
+          const loadSettings = async () => {
+            try {
+              const result = await window.storage.get('settings');
+              if (result && result.value) {
+                const saved = JSON.parse(result.value);
+                if (saved.overheadRate !== undefined) setOverheadRate(saved.overheadRate);
+                if (saved.toolingBurden !== undefined) setToolingBurden(saved.toolingBurden);
+                if (saved.laborRates) setLaborRates(saved.laborRates);
+                if (saved.laborBurdenPercent !== undefined) setLaborBurdenPercent(saved.laborBurdenPercent);
+                if (saved.targetMargin !== undefined) setTargetMargin(saved.targetMargin);
+                if (saved.scrapRate !== undefined) setScrapRate(saved.scrapRate);
+              }
+            } catch (err) {
+              console.log('No saved settings found, using defaults');
+            }
+          };
+          loadSettings();
+        }, []);
+
+        // Save settings to localStorage whenever they change
+        useEffect(() => {
+          const saveSettings = async () => {
+            try {
+              const settings = {
+                overheadRate,
+                toolingBurden,
+                laborRates,
+                laborBurdenPercent,
+                targetMargin,
+                scrapRate
+              };
+              await window.storage.set('settings', JSON.stringify(settings));
+            } catch (err) {
+              console.error('Failed to save settings:', err);
+            }
+          };
+          saveSettings();
+        }, [overheadRate, toolingBurden, laborRates, laborBurdenPercent, targetMargin, scrapRate]);
+
+
+
+        const [partNo, setPartNo] = useState('');
+        const [qty, setQty] = useState(1);
+        const [selectedMachine, setSelectedMachine] = useState('');
+        const [targetMargin, setTargetMargin] = useState(30);
+        const [scrapRate, setScrapRate] = useState(5);
+        const [includeBurdenedTooling, setIncludeBurdenedTooling] = useState(false);
+
+        const [timeInputs, setTimeInputs] = useState({
+          setup: 0,
+          mannedRun: 0,
+          unmannedRun: 0,
+          programming: 0,
+          inspection: 0,
+          rework: 0
+        });
+
+        const [materialMode, setMaterialMode] = useState('Total');
+        const [materialCost, setMaterialCost] = useState(0);
+        const [outsideProcessing, setOutsideProcessing] = useState(0);
+        const [directTooling, setDirectTooling] = useState(0);
+
+        const [showShopConfig, setShowShopConfig] = useState(false);
+        const [showLaborCalc, setShowLaborCalc] = useState(false);
+        const [showOverheadCalc, setShowOverheadCalc] = useState(false);
+        const [showToolingCalc, setShowToolingCalc] = useState(false);
+
+        const [laborCalcInputs, setLaborCalcInputs] = useState({ wages: 0, burdenCost: 0 });
+        const [overheadCalcInputs, setOverheadCalcInputs] = useState({ totalOverhead: 0, totalMachineHours: 0 });
+        const [showMachineHoursCalc, setShowMachineHoursCalc] = useState(false);
+        const [machineHoursInputs, setMachineHoursInputs] = useState({
+          weeks: 52,
+          numMachines: 1,
+          daysPerWeek: 5,
+          hoursPerDay: 8,
+          productivityBuffer: 75
+        });
+        const [toolingCalcInputs, setToolingCalcInputs] = useState({ totalTooling: 0, periodMachineHours: 0 });
+        const [showMachineHoursCalcTooling, setShowMachineHoursCalcTooling] = useState(false);
+        const [machineHoursInputsTooling, setMachineHoursInputsTooling] = useState({
+          weeks: 52,
+          numMachines: 1,
+          daysPerWeek: 5,
+          hoursPerDay: 8,
+          productivityBuffer: 75
+        });
+
+        const [newMachineName, setNewMachineName] = useState('');
+        const [newMachineRate, setNewMachineRate] = useState('');
+        const [showMachineRateCalc, setShowMachineRateCalc] = useState(false);
+        const [editingMachineId, setEditingMachineId] = useState(null);
+        const [machineRateInputs, setMachineRateInputs] = useState({
+          purchasePrice: 0,
+          residualValue: 0,
+          usefulLife: 10,
+          annualInterest: 0,
+          annualSupport: 0,
+          plannedHours: 2000,
+          targetMargin: 20
+        });
+
+        // Saved Jobs
+        const [savedJobs, setSavedJobs] = useState([]);
+        const [showSavedJobs, setShowSavedJobs] = useState(false);
+
+        // Derived calcs (kept exactly like your logic)
+        const totalRunTime = timeInputs.mannedRun + timeInputs.unmannedRun;
+
+        const laborCost = (
+          timeInputs.setup * laborRates.setup +
+          timeInputs.mannedRun * laborRates.mannedRun +
+          timeInputs.unmannedRun * laborRates.unmannedRun +
+          timeInputs.programming * laborRates.programming +
+          timeInputs.inspection * laborRates.inspection +
+          timeInputs.rework * laborRates.rework
+        ) * (1 + laborBurdenPercent / 100);
+
+        const totalMachineHours = timeInputs.setup + totalRunTime;
+        const selectedMachineRate = machines.find(m => m.name === selectedMachine)?.rate || 0;
+        const machineCost = totalMachineHours * selectedMachineRate;
+        const overheadCost = totalMachineHours * overheadRate;
+
+        const actualMaterialCost = materialMode === 'Per Part'
+          ? materialCost * qty
+          : materialCost;
+
+        const burdenedToolingCost = includeBurdenedTooling
+          ? totalMachineHours * toolingBurden
+          : 0;
+
+        const totalCost =
+          laborCost +
+          machineCost +
+          overheadCost +
+          actualMaterialCost +
+          parseFloat(outsideProcessing || 0) +
+          parseFloat(directTooling || 0) +
+          burdenedToolingCost;
+
+        const costPerPart = qty > 0 ? totalCost / qty : 0;
+
+        const suggestedQuote = totalCost / (1 - targetMargin / 100 || 1);
+        const quotePerPart = qty > 0 ? suggestedQuote / qty : 0;
+        const profit = suggestedQuote - totalCost;
+
+        const fmt = (val) => `$${(Number(val) || 0).toFixed(2)}`;
+
+        // Load saved jobs on mount
+        useEffect(() => {
+          const loadJobs = async () => {
+            try {
+              const result = await window.storage.list('job:');
+              const jobs = [];
+              for (const key of result.keys || []) {
+                try {
+                  const jobData = await window.storage.get(key);
+                  if (jobData && jobData.value) jobs.push(JSON.parse(jobData.value));
+                } catch (err) {
+                  console.error('Failed to load job:', key, err);
+                }
+              }
+              setSavedJobs(jobs.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)));
+            } catch (err) {
+              console.log('No saved jobs found');
+            }
+          };
+          loadJobs();
+        }, []);
+
+        const saveCurrentJob = async () => {
+          // IMPORTANT FIX: use the already-derived values (now defined above), and store them safely
+          const calculatedQtyToMake = qty * (1 + scrapRate / 100);
+
+          const job = {
+            id: Date.now(),
+            savedAt: Date.now(),
+            partNo,
+            qty,
+            scrapRate,
+            selectedMachine,
+            targetMargin,
+            includeBurdenedTooling,
+            timeInputs,
+            materialMode,
+            materialCost,
+            outsideProcessing,
+            directTooling,
+            qtyToMake: calculatedQtyToMake,
+            suggestedQuote,
+            quotePerPart,
+            totalCost,
+            costPerPart,
+            profit
+          };
+
+          try {
+            await window.storage.set(`job:${job.id}`, JSON.stringify(job));
+            setSavedJobs([job, ...savedJobs]);
+            alert('Job saved successfully!');
+          } catch (err) {
+            console.error('Failed to save job:', err);
+            alert('Failed to save job');
+          }
+        };
+
+        const loadJob = (job) => {
+          setPartNo(job.partNo || '');
+          setQty(job.qty || 0);
+          setScrapRate(job.scrapRate ?? 5);
+          setSelectedMachine(job.selectedMachine || '');
+          setTargetMargin(job.targetMargin ?? 0);
+          setIncludeBurdenedTooling(!!job.includeBurdenedTooling);
+          setTimeInputs(job.timeInputs || {
+            setup: 0, mannedRun: 0, unmannedRun: 0, programming: 0, inspection: 0, rework: 0
+          });
+          setMaterialMode(job.materialMode || 'Total');
+          setMaterialCost(job.materialCost || 0);
+          setOutsideProcessing(job.outsideProcessing || 0);
+          setDirectTooling(job.directTooling || 0);
+          setShowSavedJobs(false);
+        };
+
+        const deleteJob = async (jobId) => {
+          if (!confirm('Delete this saved job?')) return;
+          try {
+            await window.storage.delete(`job:${jobId}`);
+            setSavedJobs(savedJobs.filter(j => j.id !== jobId));
+          } catch (err) {
+            console.error('Failed to delete job:', err);
+          }
+        };
+
+        const addMachine = () => {
+          if (newMachineName.trim() && newMachineRate !== '') {
+            setMachines([...machines, {
+              id: Date.now(),
+              name: newMachineName.trim(),
+              rate: parseFloat(newMachineRate) || 0
+            }]);
+            setNewMachineName('');
+            setNewMachineRate('');
+          }
+        };
+
+        const deleteMachine = (id) => setMachines(machines.filter(m => m.id !== id));
+        const updateMachineRate = (id, rate) =>
+          setMachines(machines.map(m => m.id === id ? { ...m, rate: parseFloat(rate) || 0 } : m));
+
+        const openMachineRateCalc = (machineId) => {
+          setEditingMachineId(machineId);
+          setShowMachineRateCalc(true);
+        };
+
+        return (
+          <div style={{
+            margin: 0,
+            fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+            background: 'radial-gradient(1200px 600px at 80% -10%, rgba(27, 42, 107, 0.2), transparent), radial-gradient(1000px 500px at -10% 90%, rgba(14, 165, 233, 0.2), transparent), #0b1020',
+            color: '#eaf0ff',
+            minHeight: '100vh',
+            paddingBottom: 40
+          }}>
+
+            <header style={{ textAlign: 'center', padding: '28px 16px 18px' }}>
+              <h1 style={{ margin: 0, fontSize: 26, letterSpacing: 0.3 }}>◆ Versatech Job Costing Calculator</h1>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+                <button onClick={() => setShowShopConfig(true)} style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 16px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'linear-gradient(180deg, #132048, #0e1733)',
+                  color: '#eaf0ff',
+                  cursor: 'pointer',
+                  fontSize: 14
+                }}>
+                  <SettingsIcon size={16} /> Shop Configuration
+                </button>
+                <button onClick={() => setShowSavedJobs(true)} style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 16px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'linear-gradient(180deg, #132048, #0e1733)',
+                  color: '#eaf0ff',
+                  cursor: 'pointer',
+                  fontSize: 14
+                }}>
+                  📋 Saved Jobs ({savedJobs.length})
+                </button>
+              </div>
+            </header>
+
+            <div style={{ maxWidth: 1280, margin: '0 auto', padding: '18px 20px 40px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 18 }}>
+                <div style={{ display: 'grid', gap: 14 }}>
+
+                  <div style={cardStyle}>
+                    <h2 style={cardHeaderStyle}>JOB DETAILS</h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>Part No.</label>
+                        <input value={partNo} onChange={e => setPartNo(e.target.value)} style={inputStyle} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>Qty</label>
+                        <input type="number" value={qty} onChange={e => setQty(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>Machine</label>
+                        <select value={selectedMachine} onChange={e => setSelectedMachine(e.target.value)} style={inputStyle}>
+                          <option value="">Select...</option>
+                          {machines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                        </select>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                          Scrap Rate (%)
+                          <Tooltip text="Expected scrap/reject rate. E.g., 5% means you need to make 105 parts to deliver 100 good ones. Increases material costs automatically." />
+                        </label>
+                        <input type="number" value={scrapRate} onChange={e => setScrapRate(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>Target Margin (%)</label>
+                        <input type="number" value={targetMargin} onChange={e => setTargetMargin(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', opacity: 0.6 }}>Qty to Make</label>
+                        <input readOnly value={(qty * (1 + scrapRate / 100)).toFixed(0)} style={{ ...inputStyle, opacity: 0.7 }} />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={includeBurdenedTooling}
+                        onChange={e => setIncludeBurdenedTooling(e.target.checked)}
+                        id="toolingToggle"
+                      />
+                      <label htmlFor="toolingToggle" style={{ fontSize: 12, color: '#9fb0d9', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                        Include Burdened Tooling (${toolingBurden}/Mh)
+                        <Tooltip text="Adds a per-hour tooling burden to recover general tooling costs (inserts, endmills, drills, etc.) across all jobs. Calculate this rate in Shop Configuration." />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={cardStyle}>
+                    <h2 style={cardHeaderStyle}>TIME INPUTS</h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      {Object.entries(timeInputs).map(([key, val]) => (
+                        <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                          <label style={{ fontSize: 12, color: '#9fb0d9' }}>
+                            {key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())} (hrs)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={val}
+                            onChange={e => setTimeInputs({ ...timeInputs, [key]: parseFloat(e.target.value) || 0 })}
+                            style={inputStyle}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9' }}>Total Run (view)</label>
+                      <input readOnly value={totalRunTime.toFixed(2)} style={{ ...inputStyle, opacity: 0.7 }} />
+                    </div>
+                  </div>
+
+                  <div style={cardStyle}>
+                    <h2 style={cardHeaderStyle}>COGS</h2>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>Material input mode</label>
+                        <select value={materialMode} onChange={e => setMaterialMode(e.target.value)} style={inputStyle}>
+                          <option>Total</option>
+                          <option>Per Part</option>
+                        </select>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                          Material cost ({materialMode} $)
+                          <Tooltip text="Enter material cost either as total for the job, or per part (will be multiplied by quantity)." />
+                        </label>
+                        <input type="number" value={materialCost} onChange={e => setMaterialCost(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                          Outside Processing ($)
+                          <Tooltip text="Costs for external processes like heat treat, plating, anodizing, grinding, etc." />
+                        </label>
+                        <input type="number" value={outsideProcessing} onChange={e => setOutsideProcessing(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                          Direct Tooling ($)
+                          <Tooltip text="Job-specific tooling costs like special cutters, fixtures, or workholding that are directly attributable to this job." />
+                        </label>
+                        <input type="number" value={directTooling} onChange={e => setDirectTooling(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div style={{ display: 'grid', gap: 14 }}>
+
+                  <div style={{
+                    background: 'linear-gradient(180deg, #2f6bff, #234fd6)',
+                    borderRadius: 18,
+                    padding: 18,
+                    boxShadow: '0 30px 80px rgba(47,107,255,0.45)'
+                  }}>
+                    <h2 style={{ margin: '0 0 8px', fontSize: 13, color: '#dbe6ff' }}>💰 SUGGESTED QUOTE</h2>
+                    <div style={{ fontSize: 40, fontWeight: 800 }}>{fmt(suggestedQuote)}</div>
+                    <div style={{ fontSize: 13, opacity: 0.9 }}>{fmt(quotePerPart)} per part × {qty} parts</div>
+                    <button onClick={saveCurrentJob} style={{
+                      marginTop: 12,
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      background: 'rgba(255,255,255,0.15)',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600
+                    }}>
+                      💾 Save This Job
+                    </button>
+                  </div>
+
+                  <div style={cardStyle}>
+                    <h2 style={cardHeaderStyle}>COST BREAKDOWN</h2>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <tbody>
+                        <tr><td style={tdStyle}>Labor (burdened)</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(laborCost)}</td></tr>
+                        <tr><td style={tdStyle}>Machine</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(machineCost)}</td></tr>
+                        <tr><td style={tdStyle}>Overhead Recovery</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(overheadCost)}</td></tr>
+                        <tr><td style={tdStyle}>Material</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(actualMaterialCost)}</td></tr>
+                        <tr><td style={tdStyle}>Outside Processing</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(parseFloat(outsideProcessing || 0))}</td></tr>
+                        <tr><td style={tdStyle}>Direct Tooling</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(parseFloat(directTooling || 0))}</td></tr>
+                        {includeBurdenedTooling && (
+                          <tr><td style={tdStyle}>Burdened Tooling</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(burdenedToolingCost)}</td></tr>
+                        )}
+                        <tr><td style={{ ...tdStyle, fontWeight: 'bold' }}>Total Cost</td><td style={{ ...tdStyle, fontWeight: 'bold', textAlign: 'right' }}>{fmt(totalCost)}</td></tr>
+                        <tr><td style={tdStyle}>Cost / Part</td><td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(costPerPart)}</td></tr>
+                        <tr><td style={{ ...tdStyle, fontWeight: 'bold', color: '#4fd18b' }}>Profit</td><td style={{ ...tdStyle, fontWeight: 'bold', color: '#4fd18b', textAlign: 'right' }}>{fmt(profit)}</td></tr>
+                        <tr><td style={tdStyle}>Margin %</td><td style={{ ...tdStyle, textAlign: 'right' }}>{((profit / suggestedQuote) * 100 || 0).toFixed(1)}%</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            {/* SHOP CONFIG MODAL */}
+            {showShopConfig && (
+              <>
+                <div onClick={() => setShowShopConfig(false)} style={{
+                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 900
+                }} />
+                <div style={{
+                  position: 'fixed',
+                  inset: '6%',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 20,
+                  padding: 24,
+                  zIndex: 1000,
+                  overflow: 'auto'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <h2 style={{ margin: 0, fontSize: 20 }}>Shop Configuration</h2>
+                    <button onClick={() => setShowShopConfig(false)} style={{
+                      background: 'none',
+                      border: 0,
+                      color: '#9fb0d9',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.08)'
+                    }}>Close</button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 16 }}>
+                    <div style={cardStyle}>
+                      <h2 style={cardHeaderStyle}>OVERHEAD & TOOLING</h2>
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                          <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                            Overhead Rate ($/Mh)
+                            <Tooltip text="All indirect costs: rent, utilities, insurance, office supplies, business loan interest, repairs & maintenance, indirect wages (directors, managers, office staff), etc. Do NOT include direct labor wages. Spread across total machine hours." />
+                          </label>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              type="number"
+                              value={overheadRate}
+                              onChange={e => setOverheadRate(parseFloat(e.target.value) || 0)}
+                              style={{ ...inputStyle, flex: 1 }}
+                            />
+                            <button onClick={() => setShowOverheadCalc(true)} style={calcBtnStyle} title="Calculator">
+                              <CalculatorIcon size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                          <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                            Tooling Burden ($/Mh)
+                            <Tooltip text="Optional: Recover general tooling costs (inserts, endmills, etc.) per machine hour. Exclude job-specific tooling (those go in Direct Tooling)." />
+                          </label>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              type="number"
+                              value={toolingBurden}
+                              onChange={e => setToolingBurden(parseFloat(e.target.value) || 0)}
+                              style={{ ...inputStyle, flex: 1 }}
+                            />
+                            <button onClick={() => setShowToolingCalc(true)} style={calcBtnStyle} title="Calculator">
+                              <CalculatorIcon size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={cardStyle}>
+                      <h2 style={cardHeaderStyle}>LABOR RATES</h2>
+                      <div style={{ marginBottom: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                          Labor Burden %
+                          <Tooltip text="Extra costs on top of base wages: payroll taxes, healthcare, pension, workers comp, etc. Calculate by dividing total burden costs by base wages." />
+                        </label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            type="number"
+                            value={laborBurdenPercent}
+                            onChange={e => setLaborBurdenPercent(parseFloat(e.target.value) || 0)}
+                            style={{ ...inputStyle, flex: 1 }}
+                          />
+                          <button onClick={() => setShowLaborCalc(true)} style={calcBtnStyle} title="Calculator">
+                            <CalculatorIcon size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        {Object.entries(laborRates).map(([key, val]) => (
+                          <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                            <label style={{ fontSize: 12, color: '#9fb0d9' }}>
+                              {key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())} ($/hr)
+                            </label>
+                            <input
+                              type="number"
+                              value={val}
+                              onChange={e => setLaborRates({ ...laborRates, [key]: parseFloat(e.target.value) || 0 })}
+                              style={inputStyle}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={cardStyle}>
+                      <h2 style={cardHeaderStyle}>MACHINE POOL</h2>
+
+                      <div style={{ marginBottom: 12, display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8 }}>
+                        <input
+                          placeholder="Machine name"
+                          value={newMachineName}
+                          onChange={e => setNewMachineName(e.target.value)}
+                          style={inputStyle}
+                        />
+                        <input
+                          type="number"
+                          placeholder="Rate ($/hr)"
+                          value={newMachineRate}
+                          onChange={e => setNewMachineRate(e.target.value)}
+                          style={inputStyle}
+                        />
+                        <button onClick={addMachine} style={{
+                          ...calcBtnStyle,
+                          padding: '9px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}>
+                          <PlusIcon size={16} /> Add
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {machines.map(m => (
+                          <div key={m.id} style={{
+                            display: 'grid',
+                            gridTemplateColumns: '2fr 1fr auto auto',
+                            gap: 8,
+                            padding: 10,
+                            background: '#0b1220',
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,0.06)'
+                          }}>
+                            <div style={{ fontSize: 13, display: 'flex', alignItems: 'center' }}>{m.name}</div>
+                            <input
+                              type="number"
+                              value={m.rate}
+                              onChange={e => updateMachineRate(m.id, e.target.value)}
+                              style={{ ...inputStyle, padding: '6px 8px' }}
+                            />
+                            <button onClick={() => openMachineRateCalc(m.id)} style={{ ...calcBtnStyle, padding: '6px 8px' }} title="Machine Rate Calculator">
+                              <CalculatorIcon size={14} />
+                            </button>
+                            <button onClick={() => deleteMachine(m.id)} style={{ ...calcBtnStyle, padding: '6px 8px', color: '#ff6b6b' }} title="Delete">
+                              <TrashIcon size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* LABOR CALC MODAL */}
+            {showLaborCalc && (
+              <>
+                <div onClick={() => setShowLaborCalc(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 950 }} />
+                <div style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  padding: 20,
+                  zIndex: 1050,
+                  minWidth: 400,
+                  maxWidth: '90vw'
+                }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Labor Burden Calculator</h3>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                        Base Wages ($)
+                        <Tooltip text="Total annual or period wages paid to employees before any taxes or benefits." />
+                      </label>
+                      <input type="number" value={laborCalcInputs.wages}
+                        onChange={e => setLaborCalcInputs({ ...laborCalcInputs, wages: parseFloat(e.target.value) || 0 })}
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                        Burden Cost ($)
+                        <Tooltip text="All extra labor costs: payroll taxes, healthcare, pension/401k, workers comp insurance, etc." />
+                      </label>
+                      <input type="number" value={laborCalcInputs.burdenCost}
+                        onChange={e => setLaborCalcInputs({ ...laborCalcInputs, burdenCost: parseFloat(e.target.value) || 0 })}
+                        style={inputStyle}
+                        placeholder="Tax, benefits, healthcare, etc."
+                      />
+                    </div>
+
+                    <div style={{
+                      padding: 12,
+                      background: '#2f6bff22',
+                      borderRadius: 8,
+                      border: '1px solid #2f6bff44',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>Calculated Burden %</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#2f6bff' }}>
+                        {laborCalcInputs.wages > 0 ? ((laborCalcInputs.burdenCost / laborCalcInputs.wages) * 100).toFixed(1) : '0.0'}%
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginTop: 4 }}>
+                        Total Cost: {fmt(laborCalcInputs.wages + laborCalcInputs.burdenCost)}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        if (laborCalcInputs.wages > 0) setLaborBurdenPercent((laborCalcInputs.burdenCost / laborCalcInputs.wages) * 100);
+                        setShowLaborCalc(false);
+                      }} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #2f6bff',
+                        background: '#2f6bff',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Apply</button>
+
+                      <button onClick={() => setShowLaborCalc(false)} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: '#121c35',
+                        color: '#9fb0d9',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* OVERHEAD CALC MODAL */}
+            {showOverheadCalc && (
+              <>
+                <div onClick={() => setShowOverheadCalc(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 950 }} />
+                <div style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  padding: 20,
+                  zIndex: 1050,
+                  minWidth: 400,
+                  maxWidth: '90vw'
+                }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Overhead Rate Calculator</h3>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                        Total Overhead ($)
+                        <Tooltip text="All indirect costs for the period: rent, utilities, insurance, office supplies, repairs & maintenance, business loan interest, admin costs, indirect wages (directors, managers, office staff), etc. Do NOT include direct labor wages here." />
+                      </label>
+                      <input type="number" value={overheadCalcInputs.totalOverhead}
+                        onChange={e => setOverheadCalcInputs({ ...overheadCalcInputs, totalOverhead: parseFloat(e.target.value) || 0 })}
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                        Total Machine Hours
+                        <Tooltip text="Total productive machine hours across all machines for the same period. Use the calculator to compute this." />
+                      </label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="number"
+                          value={overheadCalcInputs.totalMachineHours}
+                          onChange={e => setOverheadCalcInputs({ ...overheadCalcInputs, totalMachineHours: parseFloat(e.target.value) || 0 })}
+                          style={{ ...inputStyle, flex: 1 }}
+                        />
+                        <button onClick={() => setShowMachineHoursCalc(true)} style={calcBtnStyle} title="Machine Hours Calculator">
+                          <CalculatorIcon size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: 12,
+                      background: '#2f6bff22',
+                      borderRadius: 8,
+                      border: '1px solid #2f6bff44',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>Calculated Rate ($/Mh)</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#2f6bff' }}>
+                        ${overheadCalcInputs.totalMachineHours > 0 ? (overheadCalcInputs.totalOverhead / overheadCalcInputs.totalMachineHours).toFixed(2) : '0.00'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        if (overheadCalcInputs.totalMachineHours > 0) {
+                          setOverheadRate(overheadCalcInputs.totalOverhead / overheadCalcInputs.totalMachineHours);
+                        }
+                        setShowOverheadCalc(false);
+                      }} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #2f6bff',
+                        background: '#2f6bff',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Apply</button>
+
+                      <button onClick={() => setShowOverheadCalc(false)} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: '#121c35',
+                        color: '#9fb0d9',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* TOOLING CALC MODAL */}
+            {showToolingCalc && (
+              <>
+                <div onClick={() => setShowToolingCalc(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 950 }} />
+                <div style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  padding: 20,
+                  zIndex: 1050,
+                  minWidth: 400,
+                  maxWidth: '90vw'
+                }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Tooling Burden Calculator</h3>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                        Total Tooling Cost ($)
+                        <Tooltip text="Total spent on general tooling (inserts, endmills, drills, etc.) for the period. Excludes job-specific tooling." />
+                      </label>
+                      <input type="number" value={toolingCalcInputs.totalTooling}
+                        onChange={e => setToolingCalcInputs({ ...toolingCalcInputs, totalTooling: parseFloat(e.target.value) || 0 })}
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                        Period Machine Hours
+                        <Tooltip text="Total productive machine hours for the same period as the tooling costs above." />
+                      </label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="number"
+                          value={toolingCalcInputs.periodMachineHours}
+                          onChange={e => setToolingCalcInputs({ ...toolingCalcInputs, periodMachineHours: parseFloat(e.target.value) || 0 })}
+                          style={{ ...inputStyle, flex: 1 }}
+                        />
+                        <button onClick={() => setShowMachineHoursCalcTooling(true)} style={calcBtnStyle} title="Machine Hours Calculator">
+                          <CalculatorIcon size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: 12,
+                      background: '#2f6bff22',
+                      borderRadius: 8,
+                      border: '1px solid #2f6bff44',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>Calculated Burden ($/Mh)</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#2f6bff' }}>
+                        ${toolingCalcInputs.periodMachineHours > 0 ? (toolingCalcInputs.totalTooling / toolingCalcInputs.periodMachineHours).toFixed(2) : '0.00'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        if (toolingCalcInputs.periodMachineHours > 0) {
+                          setToolingBurden(toolingCalcInputs.totalTooling / toolingCalcInputs.periodMachineHours);
+                        }
+                        setShowToolingCalc(false);
+                      }} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #2f6bff',
+                        background: '#2f6bff',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Apply</button>
+
+                      <button onClick={() => setShowToolingCalc(false)} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: '#121c35',
+                        color: '#9fb0d9',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* MACHINE HOURS CALC (OVERHEAD) */}
+            {showMachineHoursCalc && (
+              <>
+                <div onClick={() => setShowMachineHoursCalc(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 960 }} />
+                <div style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  padding: 20,
+                  zIndex: 1060,
+                  minWidth: 420,
+                  maxWidth: '90vw'
+                }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Machine Hours Calculator</h3>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {[
+                      ['Number of Weeks', 'weeks'],
+                      ['Number of Machines', 'numMachines'],
+                      ['Days per Week', 'daysPerWeek'],
+                      ['Hours per Day', 'hoursPerDay'],
+                      ['Productivity Buffer (%)', 'productivityBuffer'],
+                    ].map(([label, key]) => (
+                      <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>{label}</label>
+                        <input
+                          type="number"
+                          value={machineHoursInputs[key]}
+                          onChange={e => setMachineHoursInputs({ ...machineHoursInputs, [key]: parseFloat(e.target.value) || 0 })}
+                          style={inputStyle}
+                        />
+                      </div>
+                    ))}
+
+                    <div style={{
+                      padding: 12,
+                      background: '#2f6bff22',
+                      borderRadius: 8,
+                      border: '1px solid #2f6bff44',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>Total Machine Hours</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#2f6bff' }}>
+                        {(() => {
+                          const raw = machineHoursInputs.weeks * machineHoursInputs.numMachines * machineHoursInputs.daysPerWeek * machineHoursInputs.hoursPerDay;
+                          const adj = raw * (machineHoursInputs.productivityBuffer / 100);
+                          return adj.toFixed(0);
+                        })()}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginTop: 4 }}>
+                        ({(machineHoursInputs.weeks * machineHoursInputs.numMachines * machineHoursInputs.daysPerWeek * machineHoursInputs.hoursPerDay).toFixed(0)} raw hours × {machineHoursInputs.productivityBuffer}%)
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        const raw = machineHoursInputs.weeks * machineHoursInputs.numMachines * machineHoursInputs.daysPerWeek * machineHoursInputs.hoursPerDay;
+                        const adj = raw * (machineHoursInputs.productivityBuffer / 100);
+                        setOverheadCalcInputs({ ...overheadCalcInputs, totalMachineHours: adj });
+                        setShowMachineHoursCalc(false);
+                      }} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #2f6bff',
+                        background: '#2f6bff',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Apply</button>
+
+                      <button onClick={() => setShowMachineHoursCalc(false)} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: '#121c35',
+                        color: '#9fb0d9',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* SAVED JOBS MODAL */}
+            {showSavedJobs && (
+              <>
+                <div onClick={() => setShowSavedJobs(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 900 }} />
+                <div style={{
+                  position: 'fixed',
+                  inset: '6%',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 20,
+                  padding: 24,
+                  zIndex: 1000,
+                  overflow: 'auto'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <h2 style={{ margin: 0, fontSize: 20 }}>📋 Saved Jobs</h2>
+                    <button onClick={() => setShowSavedJobs(false)} style={{
+                      background: 'none',
+                      border: 0,
+                      color: '#9fb0d9',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.08)'
+                    }}>Close</button>
+                  </div>
+
+                  {savedJobs.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9fb0d9' }}>
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
+                      <div style={{ fontSize: 16 }}>No saved jobs yet</div>
+                      <div style={{ fontSize: 13, marginTop: 8 }}>Calculate a quote and click "Save This Job" to save it here</div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      {savedJobs.map(job => (
+                        <div key={job.id} style={{
+                          background: 'linear-gradient(180deg, #111c35, #0b1223)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: 12,
+                          padding: 16,
+                          display: 'grid',
+                          gridTemplateColumns: '1fr auto',
+                          gap: 16,
+                          alignItems: 'center'
+                        }}>
+                          <div>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                              <div style={{ fontSize: 16, fontWeight: 600 }}>{job.partNo || 'Untitled Job'}</div>
+                              <div style={{ fontSize: 11, color: '#9fb0d9', padding: '2px 8px', background: '#0b1220', borderRadius: 4 }}>
+                                {job.savedAt ? new Date(job.savedAt).toLocaleDateString() : ''}
+                              </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, fontSize: 12, color: '#9fb0d9' }}>
+                              <div><strong>Qty:</strong> {job.qty} ({job.qtyToMake ? Number(job.qtyToMake).toFixed(0) : job.qty} to make)</div>
+                              <div><strong>Scrap:</strong> {job.scrapRate || 0}%</div>
+                              <div><strong>Machine:</strong> {job.selectedMachine || 'None'}</div>
+                              <div><strong>Quote:</strong> {fmt(job.suggestedQuote)}</div>
+                              <div><strong>Per Part:</strong> {fmt(job.quotePerPart)}</div>
+                              <div><strong>Profit:</strong> <span style={{ color: '#4fd18b' }}>{fmt(job.profit)}</span></div>
+                              <div><strong>Margin:</strong> {((job.profit / job.suggestedQuote) * 100 || 0).toFixed(1)}%</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <button onClick={() => loadJob(job)} style={{
+                              padding: '8px 16px',
+                              borderRadius: 8,
+                              border: '1px solid #2f6bff',
+                              background: '#2f6bff',
+                              color: 'white',
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              whiteSpace: 'nowrap'
+                            }}>Load</button>
+                            <button onClick={() => deleteJob(job.id)} style={{
+                              padding: '8px 12px',
+                              borderRadius: 8,
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              background: '#121c35',
+                              color: '#ff6b6b',
+                              cursor: 'pointer',
+                              fontSize: 12
+                            }}>Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* MACHINE HOURS CALC (TOOLING) */}
+            {showMachineHoursCalcTooling && (
+              <>
+                <div onClick={() => setShowMachineHoursCalcTooling(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 970 }} />
+                <div style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  padding: 20,
+                  zIndex: 1070,
+                  minWidth: 420,
+                  maxWidth: '90vw'
+                }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Machine Hours Calculator</h3>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {[
+                      ['Number of Weeks', 'weeks'],
+                      ['Number of Machines', 'numMachines'],
+                      ['Days per Week', 'daysPerWeek'],
+                      ['Hours per Day', 'hoursPerDay'],
+                      ['Productivity Buffer (%)', 'productivityBuffer'],
+                    ].map(([label, key]) => (
+                      <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9' }}>{label}</label>
+                        <input
+                          type="number"
+                          value={machineHoursInputsTooling[key]}
+                          onChange={e => setMachineHoursInputsTooling({ ...machineHoursInputsTooling, [key]: parseFloat(e.target.value) || 0 })}
+                          style={inputStyle}
+                        />
+                      </div>
+                    ))}
+
+                    <div style={{
+                      padding: 12,
+                      background: '#2f6bff22',
+                      borderRadius: 8,
+                      border: '1px solid #2f6bff44',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>Total Machine Hours</div>
+                      <div style={{ fontSize: 24, fontWeight: 'bold', color: '#2f6bff' }}>
+                        {(() => {
+                          const raw = machineHoursInputsTooling.weeks * machineHoursInputsTooling.numMachines * machineHoursInputsTooling.daysPerWeek * machineHoursInputsTooling.hoursPerDay;
+                          const adj = raw * (machineHoursInputsTooling.productivityBuffer / 100);
+                          return adj.toFixed(0);
+                        })()}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginTop: 4 }}>
+                        ({(machineHoursInputsTooling.weeks * machineHoursInputsTooling.numMachines * machineHoursInputsTooling.daysPerWeek * machineHoursInputsTooling.hoursPerDay).toFixed(0)} raw hours × {machineHoursInputsTooling.productivityBuffer}%)
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        const raw = machineHoursInputsTooling.weeks * machineHoursInputsTooling.numMachines * machineHoursInputsTooling.daysPerWeek * machineHoursInputsTooling.hoursPerDay;
+                        const adj = raw * (machineHoursInputsTooling.productivityBuffer / 100);
+                        setToolingCalcInputs({ ...toolingCalcInputs, periodMachineHours: adj });
+                        setShowMachineHoursCalcTooling(false);
+                      }} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #2f6bff',
+                        background: '#2f6bff',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Apply</button>
+
+                      <button onClick={() => setShowMachineHoursCalcTooling(false)} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: '#121c35',
+                        color: '#9fb0d9',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* MACHINE RATE CALC MODAL */}
+            {showMachineRateCalc && (
+              <>
+                <div onClick={() => setShowMachineRateCalc(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 970 }} />
+                <div style={{
+                  position: 'fixed',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'linear-gradient(180deg, #101c36, #0b1223)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  padding: 20,
+                  zIndex: 1070,
+                  minWidth: 450,
+                  maxWidth: '90vw',
+                  maxHeight: '80vh',
+                  overflow: 'auto'
+                }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Machine Rate Calculator</h3>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {[
+                      ['Purchase Price ($)', 'purchasePrice', 'Original purchase price or fair market value of the machine.'],
+                      ['Residual Value ($)', 'residualValue', 'Estimated value at end of useful life. Often 10–20% of purchase price.'],
+                      ['Useful Life (years)', 'usefulLife', 'Typical 7–15 years for CNC equipment.'],
+                      ['Annual Interest Cost ($)', 'annualInterest', 'Annual interest paid on equipment-specific loans for THIS machine only.'],
+                      ['Annual Support/Programming/QA ($)', 'annualSupport', 'Annual CAM/service/QA costs attributable to THIS machine.'],
+                      ['Planned Productive Hours/Year', 'plannedHours', 'Expected annual productive hours (cutting / producing).'],
+                      ['Target Equipment Margin (%)', 'targetMargin', 'Profit margin on equipment cost portion (often 15–25%).'],
+                    ].map(([label, key, tip]) => (
+                      <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'center' }}>
+                        <label style={{ fontSize: 12, color: '#9fb0d9', display: 'flex', alignItems: 'center' }}>
+                          {label}
+                          <Tooltip text={tip} />
+                        </label>
+                        <input
+                          type="number"
+                          value={machineRateInputs[key]}
+                          onChange={e => setMachineRateInputs({ ...machineRateInputs, [key]: parseFloat(e.target.value) || 0 })}
+                          style={inputStyle}
+                        />
+                      </div>
+                    ))}
+
+                    <div style={{
+                      padding: 14,
+                      background: '#0b1220',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      fontSize: 12
+                    }}>
+                      {(() => {
+                        const annualDep = machineRateInputs.usefulLife > 0
+                          ? (machineRateInputs.purchasePrice - machineRateInputs.residualValue) / machineRateInputs.usefulLife
+                          : 0;
+                        const totalAnnual = annualDep + machineRateInputs.annualInterest + machineRateInputs.annualSupport;
+                        return (
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#9fb0d9' }}>Annual Depreciation:</span>
+                              <span>{fmt(annualDep)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#9fb0d9' }}>Annual Interest:</span>
+                              <span>{fmt(machineRateInputs.annualInterest)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#9fb0d9' }}>Annual Support/Prog/QA:</span>
+                              <span>{fmt(machineRateInputs.annualSupport)}</span>
+                            </div>
+                            <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                              <span>Total Annual Cost:</span>
+                              <span>{fmt(totalAnnual)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div style={{ padding: 12, background: '#2f6bff22', borderRadius: 8, border: '1px solid #2f6bff44', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>True Equipment Cost ($/hr)</div>
+                      <div style={{ fontSize: 20, fontWeight: 'bold', color: '#2f6bff' }}>
+                        ${(() => {
+                          const annualDep = machineRateInputs.usefulLife > 0
+                            ? (machineRateInputs.purchasePrice - machineRateInputs.residualValue) / machineRateInputs.usefulLife
+                            : 0;
+                          const totalAnnual = annualDep + machineRateInputs.annualInterest + machineRateInputs.annualSupport;
+                          return machineRateInputs.plannedHours > 0 ? (totalAnnual / machineRateInputs.plannedHours).toFixed(2) : '0.00';
+                        })()}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 12, background: '#4fd18b22', borderRadius: 8, border: '1px solid #4fd18b44', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginBottom: 4 }}>Billable Machine Rate ($/hr)</div>
+                      <div style={{ fontSize: 28, fontWeight: 'bold', color: '#4fd18b' }}>
+                        ${(() => {
+                          const annualDep = machineRateInputs.usefulLife > 0
+                            ? (machineRateInputs.purchasePrice - machineRateInputs.residualValue) / machineRateInputs.usefulLife
+                            : 0;
+                          const totalAnnual = annualDep + machineRateInputs.annualInterest + machineRateInputs.annualSupport;
+                          const trueRate = machineRateInputs.plannedHours > 0 ? (totalAnnual / machineRateInputs.plannedHours) : 0;
+                          return (trueRate * (1 + machineRateInputs.targetMargin / 100)).toFixed(2);
+                        })()}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9fb0d9', marginTop: 4 }}>
+                        (includes {machineRateInputs.targetMargin}% margin)
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        const annualDep = machineRateInputs.usefulLife > 0
+                          ? (machineRateInputs.purchasePrice - machineRateInputs.residualValue) / machineRateInputs.usefulLife
+                          : 0;
+                        const totalAnnual = annualDep + machineRateInputs.annualInterest + machineRateInputs.annualSupport;
+                        const trueRate = machineRateInputs.plannedHours > 0 ? (totalAnnual / machineRateInputs.plannedHours) : 0;
+                        const billableRate = trueRate * (1 + machineRateInputs.targetMargin / 100);
+                        if (editingMachineId) updateMachineRate(editingMachineId, billableRate);
+                        setShowMachineRateCalc(false);
+                      }} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #2f6bff',
+                        background: '#2f6bff',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Apply</button>
+
+                      <button onClick={() => setShowMachineRateCalc(false)} style={{
+                        flex: 1,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: '#121c35',
+                        color: '#9fb0d9',
+                        cursor: 'pointer',
+                        fontSize: 13
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<JobCostingCalculator />);
+    </script>
+  </body>
+</html>
